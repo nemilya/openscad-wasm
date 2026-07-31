@@ -26,7 +26,6 @@ RUN --mount=type=cache,target=/var/cache/apt \
         build-essential \
         ninja-build \
         ccache \
-        cmake \
         flex \
         gettext \
         git \
@@ -57,9 +56,12 @@ RUN --mount=type=cache,target=/var/cache/apt \
         libgbm1
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip3 install \
+    pip3 install --break-system-packages \
         meson \
         packaging
+
+RUN apt remove -y cmake
+RUN --mount=source=./cmake.tar.gz,target=/tmp/cmake.tar.gz tar -xz --strip-components=1 -f /tmp/cmake.tar.gz -C /usr/local
 
 ENV CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
 ENV MESON_BUILD_TYPE=${MESON_BUILD_TYPE}

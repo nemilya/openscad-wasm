@@ -38,8 +38,10 @@ EMSCRIPTEN_VERSION ?= 4.0.10
 UNAME_MACHINE := $(shell uname -m)
 ifeq ($(UNAME_MACHINE),arm64)
     EMSCRIPTEN_SDK_TAG=emscripten/emsdk:$(EMSCRIPTEN_VERSION)-arm64
+    CMAKE_TARBALL=https://github.com/Kitware/CMake/releases/download/v4.4.2/cmake-4.4.2-linux-aarch64.tar.gz
 else
     EMSCRIPTEN_SDK_TAG=emscripten/emsdk:$(EMSCRIPTEN_VERSION)
+    CMAKE_TARBALL=https://github.com/Kitware/CMake/releases/download/v4.4.2/cmake-4.4.2-linux-x86_64.tar.gz
 endif
 
 all: build
@@ -133,6 +135,7 @@ endif
 	touch $@
 
 libs: \
+	libs/cmake.tar.gz \
 	libs/cairo \
 	libs/cgal \
 	libs/eigen \
@@ -231,6 +234,9 @@ libs/mpfr:
 	tar xf mpfr-4.2.1.tar.xz -C libs
 	mv libs/mpfr-4.2.1 $@
 	rm mpfr-4.2.1.tar.xz
+
+libs/cmake.tar.gz:
+	wget -O $@ ${CMAKE_TARBALL}
 
 res: \
 	res/noto \
