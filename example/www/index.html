@@ -5,7 +5,7 @@
     <pre id="status"></pre>
 
     <script type="module">
-        import OpenScad from "./openscad.js";
+        import OpenScad, { getBuildInfo } from "./openscad.js";
 
         const statusEl = document.getElementById("status");
 
@@ -26,6 +26,13 @@
 
         async function go() {
             statusEl.textContent = "";
+
+            log("Build info:");
+            for (const line of await getBuildInfo()) {
+                log("  " + line);
+            }
+            log("");
+
             log("Creating instance...");
             const instance = await OpenScad({
                 noInitialRun: true,

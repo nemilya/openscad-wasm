@@ -1,8 +1,8 @@
-import { assertEquals, assertStringIncludes, assertNotEquals } from "https://deno.land/std@0.125.0/testing/asserts.ts";
+import { assertEquals, assertStringIncludes, assertNotEquals, assertMatch } from "https://deno.land/std@0.125.0/testing/asserts.ts";
 import { join } from "https://deno.land/std/path/mod.ts";
 import { loadTestFiles } from "./testing.ts";
 
-import OpenScad, { OpenSCAD } from "../build/openscad.js";
+import OpenScad, { OpenSCAD, getBuildInfo } from "../build/openscad.js";
 import { addFonts } from "../build/openscad.fonts.js";
 import { addMCAD } from "../build/openscad.mcad.js";
 
@@ -60,6 +60,17 @@ Deno.test("print stdout", async () => {
   await runTest(instance, "./cube", "-");
 
   assertNotEquals(stdout.length, 0);
+});
+
+Deno.test("build info", async () => {
+  const info = await getBuildInfo();
+
+  assertNotEquals(info.length, 0);
+  assertMatch(info[0], /^OpenSCAD Version: \S+/);
+
+  // Check a new instance still works
+  const instance = await OpenScad({ noInitialRun: true });
+  await runTest(instance, "./cube");
 });
 
 async function runTest(instance: OpenSCAD, directory: string, outfile?: string) {

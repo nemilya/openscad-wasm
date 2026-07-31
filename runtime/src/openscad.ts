@@ -51,4 +51,29 @@ async function OpenSCAD(options?: InitOptions): Promise<OpenSCAD> {
   });
 }
 
+let buildInfo: Promise<Array<string>> | undefined;
+
+export function getBuildInfo(): Promise<Array<string>> {
+  if (!buildInfo) {
+    buildInfo = readBuildInfo().catch((error) => {
+      // Don't cache a failure, so it can be retried.
+      buildInfo = undefined;
+      throw error;
+    });
+  }
+  return buildInfo;
+}
+
+async function readBuildInfo(): Promise<Array<string>> {
+  const lines: Array<string> = [];
+  const instance = await OpenSCAD({
+    noInitialRun: true,
+    print: (text: string) => lines.push(text),
+    printErr: () => {},
+  });
+
+  instance.callMain(["--info"]);
+  return lines;
+}
+
 export default OpenSCAD;
