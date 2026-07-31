@@ -110,7 +110,8 @@ RUN cd expat && \
         --host wasm32-unknown-linux \
         --prefix=/emsdk/upstream/emscripten/cache/sysroot \
         --enable-shared=no \
-        --disable-dependency-tracking && \
+        --disable-dependency-tracking \
+        && \
     emmake make && \
     emmake make install
 
@@ -119,7 +120,11 @@ FROM builder AS zlib
 COPY zlib .
 RUN emcmake cmake \
         -DINSTALL_PKGCONFIG_DIR="/emsdk/upstream/emscripten/cache/sysroot/lib/pkgconfig/" \
-        -B ../build && \
+        -B ../build \
+        -D ZLIB_BUILD_SHARED=OFF \
+        -D ZLIB_BUILD_STATIC=ON \
+        -D ZLIB_BUILD_TESTING=OFF \
+        && \
     cmake --build ../build && \
     cmake --install ../build
 
@@ -129,7 +134,12 @@ COPY --from=zlib /emsdk/upstream/emscripten/cache/sysroot /emsdk/upstream/emscri
 COPY libzip .
 RUN emcmake cmake \
         -B ../build \
-        -G Ninja && \
+        -G Ninja \
+        -DBUILD_OSSFUZZ=OFF \
+        -DBUILD_EXAMPLES=OFF \
+        -DBUILD_TOOLS=OFF \
+        -DBUILD_SHARED_LIBS=OFF \
+        && \
     cmake --build ../build --parallel && \
     cmake --install ../build
 
@@ -145,7 +155,8 @@ RUN ./autogen.sh && \
       --disable-builddir \
       --disable-multi-os-directory \
       --disable-raw-api \
-      --disable-docs && \
+      --disable-docs \
+      && \
     emmake make && \
     emmake make install SUBDIRS='include'
 
@@ -169,7 +180,8 @@ RUN meson \
       -Dnls=disabled \
       -Dtests=false \
       -Dglib_assert=false \
-      -Dglib_checks=false && \
+      -Dglib_checks=false \
+      && \
     meson install -C ../build
 
 
@@ -178,7 +190,9 @@ COPY --from=zlib /emsdk/upstream/emscripten/cache/sysroot /emsdk/upstream/emscri
 COPY freetype .
 RUN emcmake cmake \
         -B ../build \
-        -DFT_REQUIRE_ZLIB=TRUE && \
+        -DFT_REQUIRE_ZLIB=TRUE \
+        -DDISABLE_FORCE_DEBUG_POSTFIX=TRUE \
+        && \
     cmake --build ../build && \
     cmake --install ../build
 
@@ -188,9 +202,13 @@ COPY libxml2 .
 RUN emcmake cmake \
         -B ../build \
         -G Ninja \
+        -DBUILD_SHARED_LIBS=OFF \
         -DLIBXML2_WITH_PYTHON=OFF \
         -DLIBXML2_WITH_LZMA=OFF \
-        -DLIBXML2_WITH_ZLIB=OFF && \
+        -DLIBXML2_WITH_ZLIB=OFF \
+        -DLIBXML2_WITH_TESTS=OFF \
+        -DLIBXML2_WITH_PROGRAMS=OFF \
+        && \
     cmake --build ../build --parallel && \
     cmake --install ../build
 
@@ -207,11 +225,13 @@ RUN emconfigure ./autogen.sh \
         --disable-docs \
         --disable-shared \
         --enable-static \
+        --disable-cache-build \
         --sysconfdir=/ \
         --localstatedir=/ \
         --with-default-fonts=/fonts \
         --enable-libxml2 \
-        --prefix=/emsdk/upstream/emscripten/cache/sysroot && \
+        --prefix=/emsdk/upstream/emscripten/cache/sysroot \
+        && \
     emmake make && \
     emmake make install
 
@@ -230,7 +250,8 @@ RUN meson \
       --cross-file=emscripten-crossfile.meson \
       --default-library=static \
       --buildtype=${MESON_BUILD_TYPE} \
-      -Dtests=disabled && \
+      -Dtests=disabled \
+      && \
     meson install -C ../build
   
 
@@ -240,7 +261,8 @@ COPY harfbuzz .
 RUN emcmake cmake \
         -B ../build \
         -G Ninja \
-        -DHB_HAVE_FREETYPE=ON && \
+        -DHB_HAVE_FREETYPE=ON \
+        && \
     cmake --build ../build --parallel && \
     cmake --install ../build
 
@@ -250,7 +272,8 @@ COPY eigen .
 RUN emcmake cmake \
         -B ../build \
         -G Ninja \
-        -DCMAKE_INSTALL_PREFIX=/emsdk/upstream/emscripten/cache/sysroot && \
+        -DCMAKE_INSTALL_PREFIX=/emsdk/upstream/emscripten/cache/sysroot \
+        && \
     cmake --build ../build --parallel && \
     cmake --install ../build && \
     ln -s /emsdk/upstream/emscripten/cache/sysroot/include/eigen3/Eigen /emsdk/upstream/emscripten/cache/sysroot/include/Eigen
@@ -261,7 +284,8 @@ COPY cgal .
 RUN emcmake cmake \
         -B ../build \
         -G Ninja && \
-    cmake --build ../build --parallel && \
+    cmake --build ../build --parallel \
+    && \
     cmake --install ../build
 
 
@@ -271,7 +295,8 @@ RUN emconfigure ./configure \
         --disable-assembly \
         --host none \
         --enable-cxx --prefix=/emsdk/upstream/emscripten/cache/sysroot \
-        HOST_CC=gcc && \
+        HOST_CC=gcc \
+        && \
     make && \
     make install
 
@@ -282,7 +307,8 @@ COPY mpfr .
 RUN emconfigure ./configure \
         --host none \
         --with-gmp=/emsdk/upstream/emscripten/cache/sysroot \
-        --prefix=/emsdk/upstream/emscripten/cache/sysroot && \
+        --prefix=/emsdk/upstream/emscripten/cache/sysroot \
+        && \
     make && \
     make install
 
@@ -291,7 +317,8 @@ FROM builder AS doubleconversion
 COPY doubleconversion .
 RUN emcmake cmake \
         -B ../build \
-        -G Ninja && \
+        -G Ninja \
+        && \
     cmake --build ../build --parallel && \
     cmake --install ../build
 
@@ -300,11 +327,16 @@ FROM builder AS lib3mf
 COPY --from=zlib /emsdk/upstream/emscripten/cache/sysroot /emsdk/upstream/emscripten/cache/sysroot
 COPY --from=libzip /emsdk/upstream/emscripten/cache/sysroot /emsdk/upstream/emscripten/cache/sysroot
 COPY lib3mf .
-RUN emcmake cmake \
+# lib3mf needs an explicit ldflags because it's silly :)
+RUN LDFLAGS="${LDFLAGS} -L/emsdk/upstream/emscripten/cache/sysroot/lib" \
+    emcmake cmake \
         -B ../build \
         -DLIB3MF_TESTS=OFF \
         -DUSE_INCLUDED_ZLIB=OFF \
         -DUSE_INCLUDED_LIBZIP=OFF \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DSTRIP_BINARIES=OFF \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -G Ninja && \
     cmake --build ../build --parallel && \
     cmake --install ../build
