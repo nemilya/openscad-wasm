@@ -217,20 +217,20 @@ libs/openscad:
 	git clone --recurse https://github.com/openscad/openscad.git ${SHALLOW} ${SINGLE_BRANCH} $@
 
 libs/boost:
-	wget https://github.com/boostorg/boost/releases/download/boost-1.87.0/boost-1.87.0-b2-nodocs.tar.xz
+	wget -O boost-1.87.0-b2-nodocs.tar.xz https://github.com/boostorg/boost/releases/download/boost-1.87.0/boost-1.87.0-b2-nodocs.tar.xz
 	tar xf boost-1.87.0-b2-nodocs.tar.xz -C libs
 	mv libs/boost-1.87.0 $@
 	rm boost-1.87.0-b2-nodocs.tar.xz
 	sed -i -E 's/-fwasm-exceptions/-fexceptions/g' libs/boost/tools/build/src/tools/emscripten.jam
 
 libs/gmp:
-	wget https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz
+	wget -O gmp-6.3.0.tar.xz https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz
 	tar xf gmp-6.3.0.tar.xz -C libs
 	mv libs/gmp-6.3.0 $@
 	rm gmp-6.3.0.tar.xz
 
 libs/mpfr:
-	wget https://www.mpfr.org/mpfr-4.2.1/mpfr-4.2.1.tar.xz
+	wget -O mpfr-4.2.1.tar.xz https://www.mpfr.org/mpfr-4.2.1/mpfr-4.2.1.tar.xz
 	tar xf mpfr-4.2.1.tar.xz -C libs
 	mv libs/mpfr-4.2.1 $@
 	rm mpfr-4.2.1.tar.xz
