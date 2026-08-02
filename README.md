@@ -28,7 +28,7 @@ make libs
 make build
 
 # Build the project in debug mode
-make ENV=Debug build
+make ENV=debug build
 ```
 
 ## MacOS

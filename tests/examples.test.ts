@@ -14,12 +14,18 @@ const exclude = [
   "Advanced: module_recursion.scad"
 ]
 
-const examples = JSON.parse(
-  await Deno.readTextFile(join(exampleDir, "examples.json")),
-);
+async function listExamples(set: string): Promise<Array<string>> {
+  const files = [];
+  for await (const entry of Deno.readDir(join(exampleDir, set))) {
+    if (entry.isFile && entry.name.endsWith(".scad")) {
+      files.push(entry.name);
+    }
+  }
+  return files.sort();
+}
 
 for (const set of sets) {
-  for (const file of examples[set]) {
+  for (const file of await listExamples(set)) {
     const name = `${set}: ${file}`;
     if(exclude.indexOf(name) != -1) {
       continue;

@@ -2,8 +2,17 @@
 <html>
 
 <body>
+    <pre id="status"></pre>
+
     <script type="module">
-        import OpenScad from "./openscad.js";
+        import OpenScad, { getBuildInfo } from "./openscad.js";
+
+        const statusEl = document.getElementById("status");
+
+        function log(text) {
+            console.log(text);
+            statusEl.textContent += text + "\n";
+        }
 
         function downloadFile(blob, fileName) {
             const link = document.createElement('a');
@@ -12,15 +21,45 @@
             document.body.append(link);
             link.click();
             link.remove();
-        };
+            URL.revokeObjectURL(link.href);
+        }
 
-        const instance = await OpenScad({ noInitialRun: true });
+        async function go() {
+            statusEl.textContent = "";
 
-        instance.FS.writeFile("/input.scad", `cube(10);`);
-        instance.callMain(["/input.scad", "-o", "cube.stl"]);
-        const output = instance.FS.readFile("/cube.stl");
+            log("Build info:");
+            for (const line of await getBuildInfo()) {
+                log("  " + line);
+            }
+            log("");
 
-        downloadFile(new Blob([output], { type: "application/octet-stream" }), "cube.stl");
+            log("Creating instance...");
+            const instance = await OpenScad({
+                noInitialRun: true,
+                print: (t) => log("[out] " + t),
+                printErr: (t) => log("[err] " + t),
+            });
+
+            log("Rendering a cube...");
+            instance.FS.writeFile("/input.scad", `cube(10);`);
+
+            const exitCode = instance.callMain(["/input.scad", "-o", "/cube.stl"]);
+            if (exitCode !== 0) {
+                throw new Error(`openscad exited with code ${exitCode}`);
+            }
+
+            const output = instance.FS.readFile("/cube.stl");
+            log(`Got ${output.length} bytes, downloading...`);
+
+            downloadFile(new Blob([output], { type: "application/octet-stream" }), "cube.stl");
+            log("Done.");
+            return output.length;
+        }
+
+        go().catch((error) => {
+            log(`Failed: ${error.message}`);
+            console.error(error);
+        });
     </script>
 </body>
 

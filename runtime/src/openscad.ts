@@ -1,14 +1,18 @@
 export interface InitOptions {
-  noInitialRun: boolean;
+  noInitialRun?: boolean;
   print?: (text: string) => void;
   printErr?: (text: string) => void;
+  locateFile?: (path: string, prefix: string) => string;
+  monitorRunDependencies?: (left: number) => void;
+  onExit?: (status: number) => void;
+  // The emscripten module accepts many more settings than the ones above.
+  [key: string]: unknown;
 }
 
 export interface OpenSCAD {
   callMain(args: Array<string>): number;
   FS: FS;
   locateFile?: (path: string, prefix: string) => string;
-  onRuntimeInitialized?: () => void;
 }
 
 export interface FS {
@@ -23,34 +27,53 @@ export interface FS {
   unlink(path: string): void;
 }
 
-declare module globalThis {
-  let OpenSCAD: Partial<OpenSCAD> | undefined;
+type ModuleFactory = (moduleArg?: InitOptions) => Promise<OpenSCAD>;
+let factory: Promise<ModuleFactory> | undefined;
+
+function loadFactory(): Promise<ModuleFactory> {
+  const url = new URL(`./openscad.wasm.js`, import.meta.url).href;
+  return import(url).then((module) => module.default as ModuleFactory);
 }
 
-let wasmModule: string;
-
 async function OpenSCAD(options?: InitOptions): Promise<OpenSCAD> {
-  if (!wasmModule) {
-    const url = new URL(`./openscad.wasm.js`, import.meta.url).href;
-    const request = await fetch(url);
-    wasmModule = "data:text/javascript;base64," + btoa(await request.text());
+  if (!factory) {
+    factory = loadFactory().catch((error) => {
+      // Don't cache a rejected import, so a failed load can be retried.
+      factory = undefined;
+      throw error;
+    });
   }
-
-  const module: Partial<OpenSCAD> = {
+  const createModule = await factory;
+  return await createModule({
     noInitialRun: true,
     locateFile: (path: string) => new URL(`./${path}`, import.meta.url).href,
     ...options,
-  };
+  });
+}
 
-  globalThis.OpenSCAD = module;
-  await import(wasmModule + `#${Math.random()}`);
-  delete globalThis.OpenSCAD;
+let buildInfo: Promise<Array<string>> | undefined;
 
-  await new Promise((resolve) => {
-    module.onRuntimeInitialized = () => resolve(null);
+export function getBuildInfo(): Promise<Array<string>> {
+  if (!buildInfo) {
+    buildInfo = readBuildInfo().catch((error) => {
+      // Don't cache a failure, so it can be retried.
+      buildInfo = undefined;
+      throw error;
+    });
+  }
+  return buildInfo;
+}
+
+async function readBuildInfo(): Promise<Array<string>> {
+  const lines: Array<string> = [];
+  const instance = await OpenSCAD({
+    noInitialRun: true,
+    print: (text: string) => lines.push(text),
+    printErr: () => {},
   });
 
-  return module as unknown as OpenSCAD;
+  instance.callMain(["--info"]);
+  return lines;
 }
 
 export default OpenSCAD;
