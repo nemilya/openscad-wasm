@@ -1,9 +1,11 @@
 // Shared OpenSCAD WASM runner for the example pages: creates an instance,
-// prepares the virtual FS and renders an STL. Returns STL bytes.
+// prepares the virtual FS and renders a model. Returns the export bytes.
 import OpenSCAD from "../openscad.js";
 
 // manifold is the default engine in this build; no flag needed.
-export async function runOpenSCAD(code, { files = {}, prepare, log = () => {} } = {}) {
+export async function runOpenSCAD(code, {
+    files = {}, prepare, log = () => {}, format = "binstl",
+} = {}) {
     // A fresh instance per run (as in the project's own tests): once abort()
     // fires in the browser, the instance cannot be recovered.
     const instance = await OpenSCAD({
@@ -26,14 +28,16 @@ export async function runOpenSCAD(code, { files = {}, prepare, log = () => {} } 
 
     instance.FS.writeFile("/input.scad", code);
     const t0 = performance.now();
-    // Binary STL: ~5x more compact than ASCII (50 bytes per triangle
-    // instead of ~260) — the ASCII variant blows up to tens of MB on large contours.
+    // Binary STL: ~5x more compact than ASCII (50 bytes per triangle instead
+    // of ~260). 3MF (a zip) is smaller still and, unlike STL, carries the
+    // colors of color() subtrees — use it whenever colors must survive.
+    const out = `/output.${format.endsWith("stl") ? "stl" : format}`;
     const exit = instance.callMain(
-        ["/input.scad", "--export-format", "binstl", "-o", "/output.stl"]);
+        ["/input.scad", "--export-format", format, "-o", out]);
     if (exit !== 0) throw new Error(`openscad exited with code ${exit}`);
 
-    const stl = instance.FS.readFile("/output.stl");
-    if (!stl.length) throw new Error("empty STL — check the input data");
+    const bytes = instance.FS.readFile(out);
+    if (!bytes.length) throw new Error("empty output — check the input data");
 
-    return { stl, ms: Math.round(performance.now() - t0) };
+    return { bytes, ms: Math.round(performance.now() - t0) };
 }

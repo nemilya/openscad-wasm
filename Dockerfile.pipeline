@@ -610,8 +610,10 @@ RUN mkdir /out && \
 ###############################################################################
 # Stage: www-vendor
 #
-# Vendor three.js (module build + STL loader + orbit controls) so the example
-# page works without any CDN access.
+# Vendor three.js (module build + STL/3MF loaders + orbit controls) so the
+# example page works without any CDN access. Loaders live flat in vendor/
+# (not in upstream's loaders/ tree), so 3MFLoader's relative fflate import
+# is rewritten to match that layout.
 ###############################################################################
 FROM node:22-slim AS www-vendor
 
@@ -619,10 +621,13 @@ WORKDIR /vendor
 ARG THREE_VERSION=0.170.0
 RUN npm init -y >/dev/null && \
     npm install --no-audit --no-fund --no-save "three@${THREE_VERSION}" && \
-    mkdir -p out/vendor && \
+    mkdir -p out/vendor/libs && \
     cp node_modules/three/build/three.module.js node_modules/three/build/three.core.js out/vendor/ 2>/dev/null || \
         cp node_modules/three/build/three.module.js out/vendor/ && \
     cp node_modules/three/examples/jsm/loaders/STLLoader.js out/vendor/ && \
+    cp node_modules/three/examples/jsm/loaders/3MFLoader.js out/vendor/ && \
+    cp node_modules/three/examples/jsm/libs/fflate.module.js out/vendor/libs/ && \
+    sed -i "s|'\.\./libs/fflate\.module\.js'|'./libs/fflate.module.js'|" out/vendor/3MFLoader.js && \
     cp node_modules/three/examples/jsm/controls/OrbitControls.js out/vendor/ && \
     cp node_modules/three/LICENSE out/vendor/LICENSE.three
 

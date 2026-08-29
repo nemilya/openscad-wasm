@@ -905,12 +905,12 @@ ${plateCode()}
                     : { "/image.png": pngBytes };
 
                 log("running openscad…");
-                const { stl, ms } = await runOpenSCAD(code, { files, log });
+                const { bytes, ms } = await runOpenSCAD(code, { files, log });
 
-                stlBlob = new Blob([stl], { type: "model/stl" });
+                stlBlob = new Blob([bytes], { type: "model/stl" });
                 downloadBtn.disabled = false;
-                viewer.showSTL(stl);
-                log(`done: ${stl.length.toLocaleString("en-US")} bytes of STL in ${ms} ms ` +
+                viewer.showSTL(bytes);
+                log(`done: ${bytes.length.toLocaleString("en-US")} bytes of STL in ${ms} ms ` +
                     `(${plateInfo()})`, "ok");
             } catch (error) {
                 log("error: " + (error?.message ?? error), "err");

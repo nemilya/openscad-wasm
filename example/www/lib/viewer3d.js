@@ -1,9 +1,10 @@
-// Shared STL 3D viewer for the example pages (viewer.html, heightmap.html).
+// Shared STL/3MF 3D viewer for the example pages (viewer.html, heightmap.html).
 // Creates a canvas, a hint and a stats line in the container; on repeated
-// showSTL() calls it keeps the camera orientation, rescaling the distance
+// show() calls it keeps the camera orientation, rescaling the distance
 // to fit the new model size.
 import * as THREE from "three";
 import { STLLoader } from "../vendor/STLLoader.js";
+import { ThreeMFLoader } from "../vendor/3MFLoader.js";
 import { OrbitControls } from "../vendor/OrbitControls.js";
 
 const STYLE = `
@@ -94,9 +95,11 @@ export class Viewer3D {
         this.scene.add(fill);
 
         this.stlLoader = new STLLoader();
-        this.mesh = null;
+        this.objects = [];      // top-level objects of the current model
+        this.materials = [];    // flat list, for the wireframe toggle
+        this.material = null;   // single-material (STL) path only
+        this.colored = false;   // true when the model carries color() data
         this.grid = null;
-        this.material = null;
 
         new ResizeObserver(() => this.resize()).observe(container);
         this.resize();
@@ -109,17 +112,17 @@ export class Viewer3D {
 
     set wireframe(on) {
         this.wireframeOn = on;
-        if (this.material) this.material.wireframe = on;
+        for (const m of this.materials) m.wireframe = on;
     }
 
-    // Height tint (toggle without regenerating geometry).
+    // Height tint (toggle without regenerating geometry). Ignored for models
+    // that carry their own colors() — those keep their authored look.
     set tint(on) {
         this.tintOn = on;
-        if (this.material) {
-            this.material.vertexColors = on;
-            this.material.color.set(on ? 0xffffff : 0x8fa8bf);
-            this.material.needsUpdate = true;
-        }
+        if (this.colored || !this.material) return;
+        this.material.vertexColors = on;
+        this.material.color.set(on ? 0xffffff : 0x8fa8bf);
+        this.material.needsUpdate = true;
     }
 
     // Show/hide the "working" spinner over the scene.
@@ -139,9 +142,6 @@ export class Viewer3D {
         const size = new THREE.Vector3();
         geometry.boundingBox.getSize(size);
         const maxDim = Math.max(size.x, size.y, size.z) || 1;
-
-        if (this.mesh) { this.scene.remove(this.mesh); this.mesh.geometry.dispose(); }
-        if (this.grid) this.scene.remove(this.grid);
 
         // Height tint: dark at the bottom, light (warm) at the top — the relief
         // stays readable on the base plate even with a single material. The tone
@@ -186,9 +186,75 @@ export class Viewer3D {
             wireframe: this.wireframeOn,
         });
         if (!this.tintOn) this.material.color.set(0x8fa8bf);
-        this.mesh = new THREE.Mesh(geometry, this.material);
-        this.mesh.rotation.x = -Math.PI / 2; // in OpenSCAD the Z axis points up
-        this.scene.add(this.mesh);
+        const mesh = new THREE.Mesh(geometry, this.material);
+        mesh.rotation.x = -Math.PI / 2; // in OpenSCAD the Z axis points up
+
+        this.colored = false;
+        this.materials = [this.material];
+        this._show([mesh], size, maxDim, pos.count / 3);
+    }
+
+    // data — a Uint8Array of a 3MF from the emscripten virtual FS. OpenSCAD
+    // writes one material per color() subtree and references it per triangle,
+    // alpha included; each part keeps its authored color.
+    show3MF(data) {
+        const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+        const group = new ThreeMFLoader().parse(buffer);
+        group.updateMatrixWorld(true);
+
+        const box = new THREE.Box3();
+        const parts = [];
+        const materials = [];
+        group.traverse((o) => {
+            if (!o.isMesh) return;
+            const geometry = o.geometry.clone().applyMatrix4(o.matrixWorld);
+            geometry.computeBoundingBox();
+            box.union(geometry.boundingBox);
+            parts.push(geometry);
+            // 3MF gives flat facets with no normals; flat shading keeps the
+            // CSG look consistent with the STL path. Loader materials may be
+            // a single material or an array (per-group), keep that structure.
+            const convert = (src) => new THREE.MeshStandardMaterial({
+                color: src?.color?.clone() ?? new THREE.Color(0x8fa8bf),
+                transparent: (src?.opacity ?? 1) < 1,
+                opacity: src?.opacity ?? 1,
+                flatShading: true,
+                metalness: 0.15, roughness: 0.55,
+                wireframe: this.wireframeOn,
+            });
+            materials.push(Array.isArray(o.material) ? o.material.map(convert) : convert(o.material));
+        });
+        if (!parts.length) throw new Error("3MF contains no meshes");
+
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z) || 1;
+
+        let triangles = 0;
+        const model = new THREE.Group();
+        for (let i = 0; i < parts.length; i++) {
+            parts[i].translate(-center.x, -center.y, -center.z);
+            triangles += parts[i].attributes.position.count / 3;
+            model.add(new THREE.Mesh(parts[i], materials[i]));
+        }
+        model.rotation.x = -Math.PI / 2; // in OpenSCAD the Z axis points up
+
+        this.colored = true;
+        this.material = null; // height tint not applicable
+        this.materials = materials.flat();
+        this._show([model], size, maxDim, triangles);
+    }
+
+    // Common tail of both paths: swap the scene contents, fit the grid and
+    // the camera, update the stats line.
+    _show(objects, size, maxDim, triangles) {
+        for (const o of this.objects) {
+            this.scene.remove(o);
+            o.traverse((n) => n.geometry?.dispose?.());
+        }
+        if (this.grid) this.scene.remove(this.grid);
+        this.objects = objects;
+        for (const o of objects) this.scene.add(o);
 
         // Grid with a fixed 10 mm step (5 mm for small models),
         // so the cells can be used as a ruler.
@@ -216,12 +282,10 @@ export class Viewer3D {
         this.controls.update();
 
         this.hint.style.display = "none";
-        const triangles = geometry.attributes.position.count / 3;
         this.stats.textContent =
             `${triangles.toLocaleString("en-US")} triangles · ` +
             `size ${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)} mm · ` +
             `grid ${cell} mm`;
-        return { triangles, size };
     }
 
     resize() {

@@ -173,6 +173,7 @@
                 <select id="preset" title="Ready-made examples">
                     <option value="plate">Plate with a pocket and holes</option>
                     <option value="csg">Boolean ops: sphere ∩ cube</option>
+                    <option value="colors">colors — color() per part</option>
                     <option value="surface">surface() — heightmap from PNG (smiley)</option>
                     <option value="text">text() — requires fonts</option>
                     <option value="mcad">MCAD library</option>
@@ -238,6 +239,16 @@ linear_extrude(height = 4)
          font = "Liberation Sans:style=Bold",
          halign = "center", valign = "center");
 `,
+            colors: `// color() per part — the model is exported as a colored 3MF
+// (STL cannot carry colors; the transparent sphere shows alpha)
+$fn = 64;
+
+union() {
+    color("steelblue") cube([34, 22, 4], center = true);
+    color("crimson") translate([0, 0, 8]) cylinder(h = 12, d = 12);
+    color([0.2, 0.6, 1.0, 0.6]) translate([0, 0, 19]) sphere(d = 10);
+}
+`,
             mcad: `// The MCAD library is loaded automatically
 use <MCAD/boxes.scad>
 
@@ -293,13 +304,13 @@ translate([55, 0, 0])
 
         /* ---------------- render pipeline ---------------- */
 
-        let stlBlob = null;
+        let modelBlob = null, modelName = "model.stl";
 
         downloadBtn.addEventListener("click", () => {
-            if (!stlBlob) return;
+            if (!modelBlob) return;
             const link = document.createElement("a");
-            link.href = URL.createObjectURL(stlBlob);
-            link.download = "model.stl";
+            link.href = URL.createObjectURL(modelBlob);
+            link.download = modelName;
             document.body.append(link);
             link.click();
             link.remove();
@@ -309,8 +320,11 @@ translate([55, 0, 0])
         async function render() {
             const code = codeEl.value;
             const t0 = performance.now();
+            // color() subtrees carry their colors only in 3MF (STL has none),
+            // so switch the export format when the code uses color().
+            const wantsColor = /\bcolor\s*\(/.test(code);
             renderBtn.disabled = true;
-            viewer.setBusy(true, "rendering STL…");
+            viewer.setBusy(true, "rendering…");
             try {
                 // Optional resources are loaded lazily, only when needed.
                 const prepare = async (instance) => {
@@ -336,13 +350,21 @@ translate([55, 0, 0])
                 }
 
                 log("running openscad…");
-                const { stl, ms } = await runOpenSCAD(code, { files, prepare, log });
+                const { bytes, ms } = await runOpenSCAD(code, {
+                    files, prepare, log, format: wantsColor ? "3mf" : "binstl",
+                });
 
-                stlBlob = new Blob([stl], { type: "model/stl" });
+                modelBlob = new Blob([bytes],
+                    { type: wantsColor ? "model/3mf" : "model/stl" });
+                modelName = wantsColor ? "model.3mf" : "model.stl";
                 downloadBtn.disabled = false;
-                viewer.showSTL(stl);
+                downloadBtn.textContent = wantsColor ? "Download 3MF" : "Download STL";
+                $("tint").disabled = wantsColor; // no height tint on colored models
+                if (wantsColor) viewer.show3MF(bytes);
+                else viewer.showSTL(bytes);
 
-                log(`done: ${stl.length.toLocaleString("en-US")} bytes of STL in ` +
+                log(`done: ${bytes.length.toLocaleString("en-US")} bytes ` +
+                    `${wantsColor ? "of 3MF" : "of STL"} in ` +
                     `${ms} ms (total ${Math.round(performance.now() - t0)} ms)`, "ok");
             } catch (error) {
                 log("error: " + (error?.message ?? error), "err");
