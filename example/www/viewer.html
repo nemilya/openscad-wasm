@@ -178,8 +178,9 @@
                     <option value="text">text() — requires fonts</option>
                     <option value="mcad">MCAD library</option>
                 </select>
-                <button id="render" title="⌘↩ / Ctrl+Enter">Render STL</button>
-                <button id="download" disabled>Download STL</button>
+                <button id="render" title="⌘↩ / Ctrl+Enter">Render</button>
+                <button id="download-stl" disabled>Download STL</button>
+                <button id="download-3mf" disabled>Download 3MF</button>
                 <label class="chk"><input type="checkbox" id="wire"> wireframe</label>
                 <label class="chk"><input type="checkbox" id="tint" checked> tint</label>
             </div>
@@ -197,7 +198,7 @@
 
         const $ = (id) => document.getElementById(id);
         const codeEl = $("code"), logEl = $("log"), renderBtn = $("render"),
-            downloadBtn = $("download"), wireEl = $("wire"), presetEl = $("preset");
+            wireEl = $("wire"), presetEl = $("preset");
 
         /* ---------------- presets ---------------- */
 
@@ -304,18 +305,50 @@ translate([55, 0, 0])
 
         /* ---------------- render pipeline ---------------- */
 
-        let modelBlob = null, modelName = "model.stl";
+        // Exports of the last render, by format. The rendered format comes
+        // free with the view; the other one is exported on demand at click.
+        const exports = {};
+        const downloadBtns = { binstl: $("download-stl"), "3mf": $("download-3mf") };
+        let lastInputs = null;   // { code, files, prepare } for a lazy re-export
 
-        downloadBtn.addEventListener("click", () => {
-            if (!modelBlob) return;
+        function saveBlob(blob, name) {
             const link = document.createElement("a");
-            link.href = URL.createObjectURL(modelBlob);
-            link.download = modelName;
+            link.href = URL.createObjectURL(blob);
+            link.download = name;
             document.body.append(link);
             link.click();
             link.remove();
             URL.revokeObjectURL(link.href);
-        });
+        }
+
+        async function exportModel(format) {
+            if (exports[format]) return exports[format];
+            const { code, files, prepare } = lastInputs;
+            viewer.setBusy(true, `exporting ${format === "3mf" ? "3MF" : "STL"}…`);
+            try {
+                const { bytes } = await runOpenSCAD(code, { files, prepare, log, format });
+                exports[format] = new Blob([bytes],
+                    { type: format === "3mf" ? "model/3mf" : "model/stl" });
+                return exports[format];
+            } finally {
+                viewer.setBusy(false);
+            }
+        }
+
+        for (const [format, btn] of Object.entries(downloadBtns)) {
+            btn.addEventListener("click", async () => {
+                if (!lastInputs) return;
+                for (const b of Object.values(downloadBtns)) b.disabled = true;
+                try {
+                    saveBlob(await exportModel(format),
+                        `model.${format === "3mf" ? "3mf" : "stl"}`);
+                } catch (error) {
+                    log("error: " + (error?.message ?? error), "err");
+                } finally {
+                    for (const b of Object.values(downloadBtns)) b.disabled = false;
+                }
+            });
+        }
 
         async function render() {
             const code = codeEl.value;
@@ -324,6 +357,7 @@ translate([55, 0, 0])
             // so switch the export format when the code uses color().
             const wantsColor = /\bcolor\s*\(/.test(code);
             renderBtn.disabled = true;
+            for (const btn of Object.values(downloadBtns)) btn.disabled = true;
             viewer.setBusy(true, "rendering…");
             try {
                 // Optional resources are loaded lazily, only when needed.
@@ -350,15 +384,14 @@ translate([55, 0, 0])
                 }
 
                 log("running openscad…");
-                const { bytes, ms } = await runOpenSCAD(code, {
-                    files, prepare, log, format: wantsColor ? "3mf" : "binstl",
-                });
+                const format = wantsColor ? "3mf" : "binstl";
+                const { bytes, ms } = await runOpenSCAD(code, { files, prepare, log, format });
 
-                modelBlob = new Blob([bytes],
+                lastInputs = { code, files, prepare };
+                exports.binstl = exports["3mf"] = undefined; // invalidate the cache
+                exports[format] = new Blob([bytes],
                     { type: wantsColor ? "model/3mf" : "model/stl" });
-                modelName = wantsColor ? "model.3mf" : "model.stl";
-                downloadBtn.disabled = false;
-                downloadBtn.textContent = wantsColor ? "Download 3MF" : "Download STL";
+                for (const btn of Object.values(downloadBtns)) btn.disabled = false;
                 $("tint").disabled = wantsColor; // no height tint on colored models
                 if (wantsColor) viewer.show3MF(bytes);
                 else viewer.showSTL(bytes);
