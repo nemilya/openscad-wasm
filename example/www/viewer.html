@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OpenSCAD WASM — STL Viewer</title>
+    <style>
+        :root {
+            --bg: #14161a;
+            --panel: #1c1f25;
+            --panel-2: #22262e;
+            --border: #2e333d;
+            --text: #d6dae2;
+            --muted: #8a92a0;
+            --accent: #4f9cf9;
+            --accent-hover: #6fb0fb;
+            --error: #ff7b72;
+            --ok: #7ee2a8;
+            font-size: 15px;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+        }
+
+        header {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            padding: 12px 18px;
+            border-bottom: 1px solid var(--border);
+            background: var(--panel);
+        }
+
+        header h1 { font-size: 1.05rem; margin: 0; font-weight: 600; }
+        header .sub { color: var(--muted); font-size: .85rem; }
+        header .nav { margin-left: auto; font-size: .85rem; }
+        header .nav a { color: var(--accent); text-decoration: none; }
+        header .nav a:hover { color: var(--accent-hover); }
+
+        main {
+            flex: 1;
+            display: flex;
+            min-height: 0;
+        }
+
+        /* ---------- left: editor ---------- */
+        #side {
+            width: 420px;
+            min-width: 320px;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+            background: var(--panel);
+        }
+
+        #side .row {
+            display: flex;
+            gap: 8px;
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        select,
+        button {
+            background: var(--panel-2);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 7px 12px;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        select { flex: 1; }
+
+        button:hover:not(:disabled) { border-color: var(--accent); }
+        button:disabled { opacity: .45; cursor: default; }
+
+        #render {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #0d1117;
+            font-weight: 600;
+        }
+
+        #render:hover:not(:disabled) { background: var(--accent-hover); }
+
+        label.chk {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: var(--muted);
+            font-size: .85rem;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        #code {
+            flex: 1;
+            width: 100%;
+            resize: none;
+            border: 0;
+            outline: none;
+            padding: 12px 14px;
+            background: var(--bg);
+            color: #c8d3e0;
+            font: 13px/1.5 "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+            tab-size: 4;
+        }
+
+        #log {
+            height: 150px;
+            overflow: auto;
+            margin: 0;
+            padding: 8px 14px;
+            border-top: 1px solid var(--border);
+            color: var(--muted);
+            font: 11.5px/1.45 "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        #log .err { color: var(--error); }
+        #log .ok { color: var(--ok); }
+
+        /* ---------- right: 3D view (scene from lib/viewer3d.js) ---------- */
+        #view { flex: 1; position: relative; min-width: 0; }
+
+        @media (max-width: 900px) {
+            main { flex-direction: column; }
+            #side { width: 100%; min-width: 0; border-right: 0; border-bottom: 1px solid var(--border); }
+            #code { min-height: 180px; }
+            #view { min-height: 320px; }
+        }
+    </style>
+
+    <!-- three.js vendored into ./vendor by the docker build (see www-vendor stage) -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "./vendor/three.module.js",
+                "three/addons/": "./vendor/"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <header>
+        <h1>OpenSCAD WASM — STL Viewer</h1>
+        <span class="sub">the model is computed entirely in the browser, no server involved</span>
+        <span class="nav"><a href="heightmap.html">heightmap from image →</a></span>
+    </header>
+
+    <main>
+        <div id="side">
+            <div class="row">
+                <select id="preset" title="Ready-made examples">
+                    <option value="plate">Plate with a pocket and holes</option>
+                    <option value="csg">Boolean ops: sphere ∩ cube</option>
+                    <option value="surface">surface() — heightmap from PNG (smiley)</option>
+                    <option value="text">text() — requires fonts</option>
+                    <option value="mcad">MCAD library</option>
+                </select>
+                <button id="render" title="⌘↩ / Ctrl+Enter">Render STL</button>
+                <button id="download" disabled>Download STL</button>
+                <label class="chk"><input type="checkbox" id="wire"> wireframe</label>
+                <label class="chk"><input type="checkbox" id="tint" checked> tint</label>
+            </div>
+            <textarea id="code" spellcheck="false"></textarea>
+            <pre id="log">Open the browser console for details.
+</pre>
+        </div>
+
+        <div id="view"></div>
+    </main>
+
+    <script type="module">
+        import { Viewer3D } from "./lib/viewer3d.js";
+        import { runOpenSCAD } from "./lib/openscad-run.js";
+
+        const $ = (id) => document.getElementById(id);
+        const codeEl = $("code"), logEl = $("log"), renderBtn = $("render"),
+            downloadBtn = $("download"), wireEl = $("wire"), presetEl = $("preset");
+
+        /* ---------------- presets ---------------- */
+
+        const presets = {
+            plate: `// Plate with a pocket and holes
+$fn = 64;
+
+module rounded_box(w, d, h, r) {
+    hull()
+        for (x = [-w/2 + r, w/2 - r], y = [-d/2 + r, d/2 - r])
+            translate([x, y, 0]) cylinder(h = h, r = r);
+}
+
+difference() {
+    rounded_box(44, 32, 10, 6);
+    translate([0, 0, 6]) rounded_box(22, 13, 10, 3);
+    for (x = [-15, 15], y = [-10, 10])
+        translate([x, y, -1]) cylinder(h = 12, d = 4.5);
+}
+`,
+            csg: `// Sphere ∩ cube, minus three through channels
+$fn = 96;
+
+difference() {
+    intersection() {
+        sphere(d = 32);
+        cube([26, 26, 32], center = true);
+    }
+    cylinder(h = 40, d = 10, center = true);
+    rotate([90, 0, 0]) cylinder(h = 40, d = 10, center = true);
+    rotate([0, 90, 0]) cylinder(h = 40, d = 10, center = true);
+}
+`,
+            text: `// text() requires fonts — they are loaded automatically
+$fn = 64;
+
+linear_extrude(height = 4)
+    text("OpenSCAD", size = 10,
+         font = "Liberation Sans:style=Bold",
+         halign = "center", valign = "center");
+`,
+            mcad: `// The MCAD library is loaded automatically
+use <MCAD/boxes.scad>
+
+$fn = 48;
+
+difference() {
+    roundedBox([34, 22, 12], 5, true);
+    translate([0, 0, 5]) cylinder(h = 10, r = 5);
+    for (x = [-12, 12])
+        translate([x, 0, -1]) cylinder(h = 16, d = 3.5);
+}
+`,
+            surface: `// surface(): heightmap from PNG — examples 3a and 3b from the docs.
+// smiley.png is written into the virtual FS and read from a file;
+// plain relief on the left, the same with invert = true on the right.
+
+// Example 3a
+translate([-55, 0, 0])
+    scale([1, 1, 0.1])
+        surface(file = "smiley.png", center = true);
+
+// Example 3b
+translate([55, 0, 0])
+    scale([1, 1, 0.1])
+        surface(file = "smiley.png", center = true, invert = true);
+`,
+        };
+
+        codeEl.value = presets.plate;
+        presetEl.addEventListener("change", () => { codeEl.value = presets[presetEl.value]; });
+        codeEl.addEventListener("keydown", (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); render(); }
+        });
+
+        /* ---------------- log ---------------- */
+
+        function log(text, cls) {
+            const atEnd = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8;
+            const span = document.createElement("span");
+            if (cls) span.className = cls;
+            span.textContent = text + "\n";
+            logEl.append(span);
+            if (atEnd) logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        /* ---------------- 3D viewer ---------------- */
+
+        const viewer = new Viewer3D($("view"), {
+            hintHtml: "The model will appear here.<br>Left-drag — rotate, wheel — zoom, right-drag — pan.",
+        });
+        wireEl.addEventListener("change", () => { viewer.wireframe = wireEl.checked; });
+        $("tint").addEventListener("change", (e) => { viewer.tint = e.target.checked; });
+
+        /* ---------------- render pipeline ---------------- */
+
+        let stlBlob = null;
+
+        downloadBtn.addEventListener("click", () => {
+            if (!stlBlob) return;
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(stlBlob);
+            link.download = "model.stl";
+            document.body.append(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(link.href);
+        });
+
+        async function render() {
+            const code = codeEl.value;
+            const t0 = performance.now();
+            renderBtn.disabled = true;
+            viewer.setBusy(true, "rendering STL…");
+            try {
+                // Optional resources are loaded lazily, only when needed.
+                const prepare = async (instance) => {
+                    if (/\btext\s*\(/.test(code)) {
+                        log("loading fonts (openscad.fonts.js)…");
+                        const { addFonts } = await import("./openscad.fonts.js");
+                        addFonts(instance);
+                    }
+                    if (/MCAD/.test(code)) {
+                        log("loading MCAD (openscad.mcad.js)…");
+                        const { addMCAD } = await import("./openscad.mcad.js");
+                        addMCAD(instance);
+                    }
+                };
+
+                const files = {};
+                if (/smiley\.png/.test(code)) {
+                    // surface() reads the file from the virtual FS
+                    log("loading smiley.png into the virtual FS…");
+                    const res = await fetch("./assets/smiley.png");
+                    if (!res.ok) throw new Error(`smiley.png: HTTP ${res.status}`);
+                    files["/smiley.png"] = new Uint8Array(await res.arrayBuffer());
+                }
+
+                log("running openscad…");
+                const { stl, ms } = await runOpenSCAD(code, { files, prepare, log });
+
+                stlBlob = new Blob([stl], { type: "model/stl" });
+                downloadBtn.disabled = false;
+                viewer.showSTL(stl);
+
+                log(`done: ${stl.length.toLocaleString("en-US")} bytes of STL in ` +
+                    `${ms} ms (total ${Math.round(performance.now() - t0)} ms)`, "ok");
+            } catch (error) {
+                log("error: " + (error?.message ?? error), "err");
+                console.error(error);
+            } finally {
+                viewer.setBusy(false);
+                renderBtn.disabled = false;
+            }
+        }
+
+        renderBtn.addEventListener("click", render);
+    </script>
+</body>
+
+</html>
