@@ -9,3 +9,5 @@ res
 *.make
 .oci.*
 .DS_Store
+dist
+build.log

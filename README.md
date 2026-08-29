@@ -31,6 +31,76 @@ make build
 make ENV=debug build
 ```
 
+## Docker-only build
+
+If you do not want to install Make/Deno/Node on the host machine, the whole
+pipeline can run through Docker alone (fetching the pinned sources, building
+the emscripten dependencies, cross-compiling OpenSCAD, bundling the JS runtime
+and vendoring three.js for the example page):
+
+```
+./build.sh      # builds the image and extracts the artifacts into ./dist
+./serve.sh      # serves the example page at http://localhost:8080
+```
+
+`build.sh` only invokes `docker` (plus `uname` to pick the right emsdk
+architecture). Individual pipeline stages can be built for debugging, e.g.
+`TARGET=libs ./build.sh` or `TARGET=openscad ./build.sh`.
+
+## Using the artifacts without docker
+
+Docker is only the *build* tool (and an optional serving convenience). The
+`dist/` directory produced by `./build.sh` is self-contained and portable:
+every reference in the page is relative, so it works from any directory root
+with any static file server:
+
+```
+cd dist
+python3 -m http.server 8000     # or any other static server
+```
+
+The requirements are just those of ES modules: the files must be served over
+http(s) (opening `index.html` via `file://` does not work). Python's
+`http.server` already sends the right MIME types, including
+`application/wasm`.
+
+While iterating on the example pages there is no need to rebuild anything -
+`example/www/**` is plain HTML/JS, so just sync it into `dist/` and reload:
+
+```
+./sync-www.sh     # cp example/www/** into dist/, wasm artifacts untouched
+```
+
+Run `./build.sh` only when the WASM artifacts themselves must change (openscad
+sources, dependencies, build flags); `serve.sh` should also be re-run then,
+since the nginx image snapshots the files at build time.
+
+To embed OpenSCAD into another project, copy the four core files (they must
+stay together — the wrapper resolves `openscad.wasm` relative to itself) plus
+the optional resource bundles:
+
+```
+openscad.js        # import this (ES6 module factory)
+openscad.wasm.js   # emscripten glue
+openscad.wasm      # the binary
+openscad.fonts.js  # optional: fonts for text()
+openscad.mcad.js   # optional: MCAD library
+```
+
+```js
+import OpenSCAD from "./openscad.js";
+
+const instance = await OpenSCAD({ noInitialRun: true });
+instance.FS.writeFile("/input.scad", "cube(10);");
+instance.callMain(["/input.scad", "--enable=manifold", "-o", "/out.stl"]);
+const stl = instance.FS.readFile("/out.stl");  // Uint8Array
+```
+
+Any files a script needs (`surface(file = ...)` images, `use <...>` libraries)
+are provided the same way — write them into the virtual FS with
+`instance.FS.writeFile()` before `callMain`, as the example page does for
+`assets/smiley.png`.
+
 ## MacOS
 
 On MacOS, the version of Make that ships with the OS (3.81) is not compatible with this makefile, so you'll need to install a modern version of make and use that instead.

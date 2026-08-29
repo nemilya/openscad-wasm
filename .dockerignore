@@ -31,4 +31,5 @@ libs/libzip/regress
 libs/mpfr/tests
 libs/openscad/tests
 libs/zlib/contrib
-runtime
+runtime/dist
+runtime/node_modules
