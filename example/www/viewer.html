@@ -183,6 +183,9 @@
                 <button id="download-3mf" disabled>Download 3MF</button>
                 <label class="chk"><input type="checkbox" id="wire"> wireframe</label>
                 <label class="chk"><input type="checkbox" id="tint" checked> tint</label>
+                <label class="chk" id="colors-row" style="display:none">
+                    <input type="checkbox" id="colors" checked> colors
+                </label>
             </div>
             <textarea id="code" spellcheck="false"></textarea>
             <pre id="log">Open the browser console for details.
@@ -302,8 +305,19 @@ translate([55, 0, 0])
         });
         wireEl.addEventListener("change", () => { viewer.wireframe = wireEl.checked; });
         $("tint").addEventListener("change", (e) => { viewer.tint = e.target.checked; });
+        $("colors").addEventListener("change", (e) => {
+            viewer.colors = e.target.checked; // colored vs plain "as STL" look
+            updateTintState();
+        });
 
         /* ---------------- render pipeline ---------------- */
+
+        // The height tint only applies to the plain look — it is disabled
+        // while the authored colors are shown.
+        let lastWantsColor = false;
+        function updateTintState() {
+            $("tint").disabled = lastWantsColor && $("colors").checked;
+        }
 
         // Exports of the last render, by format. The rendered format comes
         // free with the view; the other one is exported on demand at click.
@@ -392,7 +406,10 @@ translate([55, 0, 0])
                 exports[format] = new Blob([bytes],
                     { type: wantsColor ? "model/3mf" : "model/stl" });
                 for (const btn of Object.values(downloadBtns)) btn.disabled = false;
-                $("tint").disabled = wantsColor; // no height tint on colored models
+                lastWantsColor = wantsColor;
+                $("colors-row").style.display = wantsColor ? "" : "none";
+                $("colors").checked = true;
+                updateTintState();
                 if (wantsColor) viewer.show3MF(bytes);
                 else viewer.showSTL(bytes);
 
